@@ -268,6 +268,8 @@ int FAILED_KILL_PENALTY;
 #include <time.h>
 #include <unistd.h>
 
+#include <sys/time.h>
+
 #ifdef USE_PTHREADS_COUNT
 #include <pthread.h>
 #endif
@@ -279,6 +281,11 @@ int FAILED_KILL_PENALTY;
 #include <SDL2/SDL.h>
 #endif /* _MSC_VER */
 #endif /* USE_SDL */
+
+//variables to time locks
+uint64_t gtodTime = 0;
+uint64_t lockTime = 0;
+struct timeval startTime, endTime;
 
 volatile uint64_t prngState[2];
 static inline uintptr_t getRandom()
@@ -663,8 +670,19 @@ static void *run(void *targ)
 			y = getRandom() % POND_SIZE_Y;
 			pptr = &pond[x][y];
 
+            //Time this lock
+            //First, how long is gtod itself
+            gettimeofday(&startTime,NULL);
+            gettimeofday(&endTime,NULL);
+            gtodTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
+            
 #ifdef USE_PTHREADS_COUNT
+            gettimeofday(&startTime,NULL);
+
 			pthread_mutex_lock(&(pptr->lock));
+
+            gettimeofday(&endTime,NULL);
+            lockTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #endif
 
 			pptr->ID = cellIdCounter;
@@ -684,9 +702,15 @@ static void *run(void *targ)
 #ifdef USE_SDL
 			((uint8_t *)screen->pixels)[x + (y * sdlPitch)] = getColor(pptr);
 #endif /* USE_SDL */
-
+            //First, how long is gtod itself
+            gettimeofday(&startTime,NULL);
+            gettimeofday(&endTime,NULL);
+            gtodTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #ifdef USE_PTHREADS_COUNT
+            gettimeofday(&startTime,NULL);
 			pthread_mutex_unlock(&(pptr->lock));
+            gettimeofday(&endTime,NULL);
+            lockTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #endif
 		}
 
@@ -861,17 +885,30 @@ static void *run(void *targ)
 						break;
 					case 0xe: /* SHARE: Equalize energy between self and neighbor if allowed */
 						tmpptr = getNeighbor(x,y,facing);
+                        gettimeofday(&startTime,NULL);
+                        gettimeofday(&endTime,NULL);
+                        gtodTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 						if (accessAllowed(tmpptr,reg,1)) {
 #ifdef USE_PTHREADS_COUNT
+                            gettimeofday(&startTime,NULL);
 							pthread_mutex_lock(&(tmpptr->lock));
+                            gettimeofday(&endTime,NULL);
+                            lockTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #endif
 							if (tmpptr->generation > 2)
 								++statCounters.viableCellShares;
 							tmp = pptr->energy + tmpptr->energy;
 							tmpptr->energy = tmp / 2;
 							pptr->energy = tmp - tmpptr->energy;
+
+                            gettimeofday(&startTime,NULL);
+                            gettimeofday(&endTime,NULL);
+                            gtodTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #ifdef USE_PTHREADS_COUNT
+                            gettimeofday(&startTime,NULL);
 							pthread_mutex_unlock(&(tmpptr->lock));
+                            gettimeofday(&endTime,NULL);
+                            lockTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #endif
 						}
 						break;
@@ -899,8 +936,14 @@ static void *run(void *targ)
 		 * junk eventually. See the seeding code in the main loop above. */
 		if ((outputBuf[0] & 0xff) != 0xff) {
 			tmpptr = getNeighbor(x,y,facing);
+            gettimeofday(&startTime,NULL);
+            gettimeofday(&endTime,NULL);
+            gtodTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #ifdef USE_PTHREADS_COUNT
+            gettimeofday(&startTime,NULL);
 			pthread_mutex_lock(&(tmpptr->lock));
+            gettimeofday(&endTime,NULL);
+            lockTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #endif
 			if ((tmpptr->energy)&&accessAllowed(tmpptr,reg,0)) {
 				/* Log it if we're replacing a viable cell */
@@ -915,8 +958,14 @@ static void *run(void *targ)
 				for(i=0;i<POND_DEPTH_SYSWORDS;++i)
 					tmpptr->genome[i] = outputBuf[i];
 			}
+            gettimeofday(&startTime,NULL);
+            gettimeofday(&endTime,NULL);
+            gtodTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #ifdef USE_PTHREADS_COUNT
+            gettimeofday(&startTime,NULL);
 			pthread_mutex_unlock(&(tmpptr->lock));
+            gettimeofday(&endTime,NULL);
+            lockTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #endif
 		}
 
@@ -1118,8 +1167,14 @@ int main(int argc, char** argv)
 			for(i=0;i<POND_DEPTH_SYSWORDS;++i){
 				pond[x][y].genome[i] = ~((uintptr_t)0);
             }
+            gettimeofday(&startTime,NULL);
+            gettimeofday(&endTime,NULL);
+            gtodTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #ifdef USE_PTHREADS_COUNT
+            gettimeofday(&startTime,NULL);
 			pthread_mutex_init(&(pond[x][y].lock),0);
+            gettimeofday(&endTime,NULL);
+            lockTime+=(endTime.tv_usec+1000000*endTime.tv_sec)-(startTime.tv_usec+1000000*startTime.tv_sec);
 #endif
 		}
 	}
@@ -1148,5 +1203,8 @@ int main(int argc, char** argv)
         free(pond[i]);
     }
     free(pond);
+
+    printf("lockTime-gtodTime=%lu\n", lockTime-gtodTime);
+    printf("that is %lu seconds\n", (lockTime-gtodTime)/1000000);
 	return 0;
 }
