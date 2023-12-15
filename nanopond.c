@@ -215,6 +215,7 @@
 #include <unistd.h>
 
 #include <pthread.h>
+#include <semaphore.h>
 
 #ifdef USE_SDL
 #ifdef _MSC_VER
@@ -724,39 +725,38 @@ return 0; /* Cells with no energy are black */
 #endif
 
 uintptr_t globalcycle = 0;
-/** Array of booleans to keep track of which threads are done */
-#ifdef USE_PTHREADS_COUNT
-uint8_t threadComplete[USE_PTHREADS_COUNT];
-#else
-uint8_t threadComplete[1];
-#endif
+/** 2 semaphores to track state of work/copies*/
+sem_t workdone;
+sem_t memcopied;
 
 volatile int exitNow = 0;
 
 /** Add a thread whose sole purpose is to do the reporting */
 static void *runReporting(){ 
+#ifdef USE_PTHREADS_COUNT
+    const uint64_t numThreads = USE_PTHREADS_COUNT;
+#else
+    const uint64_t numThreads = 1;
+#endif
     while (!exitNow) {
-        uint8_t allDone = numThreads;
-        while(allDone>0){
-            allDone = numThreads;
-            for(uint64_t i=0; i<numThreads; i++){
-                if(threadComplete[i]){
-                    allDone--;
-                }
-            }
+        int result;
+        sem_getvalue(&workdone, &result);
+        while (result!=numThreads) {
+            //spinning wheels
+            sem_getvalue(&workdone,&result);
         }
-        allDone = numThreads;
-        while(allDone>0){
-            allDone = numThreads;
-            for(uint i=0; i<numThreads; i++){
-                if(!threadComplete[i]){
-                    allDone--;
-                }
-            }
-        }
-        doReport(globalcycle);
-    }
+        //workdone=0;//?
+        for (uint64_t i; i<numThreads;i++) sem_wait(&workdone);
 
+        sem_getvalue(&memcopied,&result);
+        while (result!=numThreads) {
+            sem_getvalue(&memcopied,&result);
+        }
+        //memcopied=0;
+        for (uint64_t i; i<numThreads;i++) sem_wait(&memcopied);
+        doReport(globalcycle);
+    
+    }
         return (void *)0;
 }
 
@@ -796,7 +796,6 @@ static inline void copyMem(struct Partition *p){
 static void *run(void *targ)
 {// void* targ is a partition*
 struct Partition *p = (struct Partition *)targ;
-const uintptr_t threadNo = (uintptr_t)p->threadNo;
 uint64_t width = p->width;
 uint64_t height = p->height;
 struct Cell** topLeft = p->topLeft;
@@ -850,24 +849,24 @@ while (!exitNow) {
     /* Clock is incremented at the start, so it starts at 1 */
     ++cycle;
     if ((!(cycle % REPORT_FREQUENCY))) {
-        if(threadNo == 0){
-            globalcycle = cycle;
+        //We have reached the reporting point
+        sem_post(&workdone);
+        //Wait for workdone to return to 0
+        int result;
+        sem_getvalue(&workdone,&result);
+        while (result !=0) {//Will this be optimized away? Hopefully not.
+            sem_getvalue(&workdone,&result);
         }
-        threadComplete[threadNo] = 1;
-        uint8_t allDone = numThreads;
-        while(allDone>0){
-            allDone = numThreads;
-            for(uint64_t i=0; i<numThreads; i++){
-                if(threadComplete[i]){
-                    allDone--;
-                }
-            }
+        //Do mem copy
+        copyMem(p);
+        sem_post(&memcopied);
+        //Wait for memcopied to be 0
+        sem_getvalue(&memcopied,&result);
+        while (result !=0) {
+            sem_getvalue(&memcopied,&result);
         }
-        /** all threads finished if we've gotten to this point */
-        
-        /** NOW WE COPY MEMORY BUT DONT ASK ME HOW */
-        
-        threadComplete[threadNo] = 0;
+
+        //Continue
     }
 
     /* Introduce a random cell somewhere with a given energy level */
@@ -1366,16 +1365,16 @@ while ((opt = getopt(argc, argv, "x:y:m:f:v:b:p:c:k:d:ht:")) != -1) {
 	}
 #endif /* USE_SDL */
 /*Initialization moved into makePartitions*/ 
+    sem_init(&workdone, 0, 0);
+    sem_init(&memcopied, 0, 0);
 
     pthread_t reportThread;
     pthread_create(&reportThread,0,runReporting,(void *)NULL);
 #ifdef USE_PTHREADS_COUNT 
 	pthread_t threads[USE_PTHREADS_COUNT];
 	for(uint64_t i=1;i<USE_PTHREADS_COUNT;++i) {
-        threadComplete[i] = 0;
         pthread_create(&threads[i],0,run, (void *)&partitionList[i]);
     }
-	threadComplete[0] = 0;
     run(&partitionList[0]);
 	for(uint64_t i=1;i<USE_PTHREADS_COUNT;++i) {
 		pthread_join(threads[i], (void**)0);
@@ -1383,12 +1382,14 @@ while ((opt = getopt(argc, argv, "x:y:m:f:v:b:p:c:k:d:ht:")) != -1) {
 #else
 	run((void *)&partitionList[0]);
 #endif
-
+    exitNow=1;
 #ifdef USE_SDL
 	SDL_FreeSurface(screen);
 	SDL_DestroyWindow(window);
 #endif /* USE_SDL */
 
     freePartitions(partitionList);
+    sem_destroy(&workdone);
+    sem_destroy(&memcopied);
 	return 0;
 }
