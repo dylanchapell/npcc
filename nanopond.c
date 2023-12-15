@@ -599,7 +599,7 @@ static inline int makePartitions(struct Partition *partitionList) {
         for(uintptr_t i = 0; i < partitionList[pN].width; i++){
             partitionList[pN].topLeft[i] = ((struct Cell*)calloc(partitionList[pN].height, sizeof(struct Cell)));
             //Allocate genome
-            for(uintptr_t j = 0; j < POND_SIZE_Y; j++){
+            for(uintptr_t j = 0; j < partitionList[pN].height; j++){
                 partitionList[pN].topLeft[i][j].genome = (uintptr_t*)calloc(POND_DEPTH_SYSWORDS, sizeof(uintptr_t));
             }
             
