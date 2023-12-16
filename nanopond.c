@@ -536,7 +536,6 @@ static inline int makePartitions(struct Partition *partitionList) {
     }
     #endif
     
-    POND_DEPTH_SYSWORDS = (POND_DEPTH / (sizeof(uintptr_t) * 2));
     uint64_t listLen;
     #ifndef USE_PTHREADS_COUNT
     //Create single threaded with only one partition encompassing whole board
@@ -1288,6 +1287,7 @@ while ((opt = getopt(argc, argv, "x:y:m:f:v:b:p:c:k:d:ht:")) != -1) {
                 exit(EXIT_FAILURE);
         }
     }
+    POND_DEPTH_SYSWORDS = (POND_DEPTH / (sizeof(uintptr_t) * 2));
 
     /** Setup global snapshot pond */
     globalpond = ((struct Cell**)calloc(POND_SIZE_X, sizeof(struct Cell*))); 
