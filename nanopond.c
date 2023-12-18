@@ -740,7 +740,7 @@ static void *runReporting(){
     while (!exitNow) {
         int result;
         sem_getvalue(&workdone, &result);
-        while (result!=numThreads) {
+        while (!exitNow && result!=numThreads) {
             //spinning wheels
             sem_getvalue(&workdone,&result);
         }
@@ -748,7 +748,7 @@ static void *runReporting(){
         for (uint64_t i=0; i<numThreads;i++) sem_wait(&workdone);
 
         sem_getvalue(&memcopied,&result);
-        while (result!=numThreads) {
+        while (!exitNow && result!=numThreads) {
             sem_getvalue(&memcopied,&result);
         }
         //memcopied=0;
@@ -797,13 +797,14 @@ static void *run(void *targ)
 struct Partition *p = (struct Partition *)targ;
 uint64_t width = p->width;
 uint64_t height = p->height;
+uint64_t threadNo = p->threadNo;
 struct Cell** topLeft = p->topLeft;
 
 
 uintptr_t x,y,i;
 uintptr_t cycle = 0;
-//start_t start,end;
-//start=clock();
+clock_t start,end;
+start=clock();
 /* Buffer used for execution output of candidate offspring */
 uintptr_t outputBuf[POND_DEPTH_SYSWORDS];
 
@@ -864,6 +865,12 @@ while (!exitNow) {
         while (result !=0) {
             sem_getvalue(&memcopied,&result);
         }
+	end=clock();
+	if (threadNo==0) {
+		if((cycle >= MAX_CLOCK) || ((( (uintptr_t)( (end-start)/CLOCKS_PER_SEC) ) >= MAX_SECONDS) && ((int)MAX_SECONDS!=-1))) {
+			exitNow = 1;
+		}
+	}
 
         //Continue
     }
